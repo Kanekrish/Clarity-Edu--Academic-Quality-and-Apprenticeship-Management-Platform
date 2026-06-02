@@ -230,6 +230,12 @@ backend/src/db/schema.sql
 ### Clarity Project Team
 
 Enterprise Academic Management Platform
+| Team member   |                     |
+| --------------| --------------------|
+| Krishna       | Project Manager     |
+| Larisa        |                     |
+| Alin          |                     |
+| Ashik         |                     |
 
 </div>
 
