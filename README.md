@@ -230,12 +230,12 @@ backend/src/db/schema.sql
 ### Clarity Project Team
 
 Enterprise Academic Management Platform
-| Team member   |   Member Roles              |
-| --------------| ----------------------------|
-| Krishna       | Project Lead                |
-| Larisa        | Technical Lead              |
-| Alin          | Frontend Developer          |
-| Ashik         | UX Research & Documentation |
+| Team member   |   Member Roles              |                                                                    Project Contributions                                                                     |  
+| --------------| ----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Krishna       | Project Lead                | PID documentation, Designing of project evalutions scripts, Meeting and project coordination, Creating GitHub repository,  Commit project evaluation scripts |  
+| Larisa        | Technical Lead              | Backend design                                                                                                                                               |
+| Alin          | Frontend Developer          | Front End design                                                                                                                                             |
+| Ashik         | UX Research & Documentation |  UX research, accessibility review, documentation support                                                                                                    |
 
 </div>
 
