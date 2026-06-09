@@ -2,7 +2,7 @@
 
 <div align="center">
 
-### Ofsted Readiness Platform for Degree Apprenticeships
+### Edu Academic Quality and Apprenticeship management platform
 
 <br>
 
