@@ -35,6 +35,16 @@ const statusLabel: Record<string, string> = {
   overdue:     "Overdue",
 };
 
+const emptyForm = {
+  module_id: "",
+  title: "",
+  release_date: "",
+  deadline: "",
+  marking_status: "not_started",
+  review_date: "",
+  external_examiner_required: false,
+};
+
 export default function Assessments() {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
@@ -43,15 +53,12 @@ export default function Assessments() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
-  const [form, setForm] = useState({
-    module_id: "",
-    title: "",
-    release_date: "",
-    deadline: "",
-    marking_status: "not_started",
-    review_date: "",
-    external_examiner_required: false,
-  });
+  const [form, setForm] = useState({ ...emptyForm });
+
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ ...emptyForm });
+  const [editError, setEditError] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const fetchAll = () =>
     Promise.all([
@@ -63,6 +70,40 @@ export default function Assessments() {
     }).catch(() => {}).finally(() => setLoading(false));
 
   useEffect(() => { fetchAll(); }, []);
+
+  const openEdit = (a: Assessment) => {
+    setEditId(a.id);
+    setEditForm({
+      module_id: String(a.module_id),
+      title: a.title,
+      release_date: a.release_date ?? "",
+      deadline: a.deadline ?? "",
+      marking_status: a.marking_status,
+      review_date: a.review_date ?? "",
+      external_examiner_required: a.external_examiner_required === 1,
+    });
+    setEditError("");
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editForm.title) { setEditError("Title is required"); return; }
+    setEditSaving(true); setEditError("");
+    try {
+      await api.put(`/assessments/${editId}`, {
+        title: editForm.title,
+        release_date: editForm.release_date || null,
+        deadline: editForm.deadline || null,
+        marking_status: editForm.marking_status,
+        review_date: editForm.review_date || null,
+        external_examiner_required: editForm.external_examiner_required,
+      });
+      await fetchAll();
+      setEditId(null);
+    } catch (err: any) {
+      setEditError(err.message || "Failed to save");
+    } finally { setEditSaving(false); }
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +121,7 @@ export default function Assessments() {
       });
       await fetchAll();
       setIsAddOpen(false);
-      setForm({ module_id: "", title: "", release_date: "", deadline: "", marking_status: "not_started", review_date: "", external_examiner_required: false });
+      setForm({ ...emptyForm });
     } catch (err: any) {
       setFormError(err.message || "Failed to add assessment");
     } finally { setSaving(false); }
@@ -159,7 +200,8 @@ export default function Assessments() {
                         <span className="text-xs text-gray-400">No</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 flex gap-3">
+                      <button onClick={() => openEdit(a)} className="text-teal-600 hover:text-teal-800 text-sm font-medium">Edit</button>
                       <button onClick={() => handleDelete(a.id)} className="text-red-500 hover:text-red-700 text-sm">Delete</button>
                     </td>
                   </tr>
@@ -169,6 +211,70 @@ export default function Assessments() {
           </div>
         )}
       </div>
+
+      {/* Edit Modal */}
+      {editId !== null && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl text-gray-800">Edit Assessment</h2>
+              <button onClick={() => setEditId(null)}><X className="w-5 h-5 text-gray-500" /></button>
+            </div>
+            {editError && (
+              <div className="mb-4 flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <AlertCircle className="w-4 h-4" />{editError}
+              </div>
+            )}
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Module</label>
+                <select
+                  value={editForm.module_id}
+                  onChange={e => setEditForm({ ...editForm, module_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                >
+                  <option value="">Select module…</option>
+                  {modules.map(m => <option key={m.id} value={m.id}>{m.code} — {m.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-700 mb-1">Title <span className="text-red-500">*</span></label>
+                <input type="text" value={editForm.title} onChange={e => setEditForm({ ...editForm, title: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Release Date</label>
+                  <input type="date" value={editForm.release_date} onChange={e => setEditForm({ ...editForm, release_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Deadline</label>
+                  <input type="date" value={editForm.deadline} onChange={e => setEditForm({ ...editForm, deadline: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Marking Status</label>
+                  <select value={editForm.marking_status} onChange={e => setEditForm({ ...editForm, marking_status: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500">
+                    {Object.entries(statusLabel).map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1">Review Date</label>
+                  <input type="date" value={editForm.review_date} onChange={e => setEditForm({ ...editForm, review_date: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="edit-ext" checked={editForm.external_examiner_required as boolean} onChange={e => setEditForm({ ...editForm, external_examiner_required: e.target.checked })} className="w-4 h-4" />
+                <label htmlFor="edit-ext" className="text-sm text-gray-700">External Examiner Required</label>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditId(null)} className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button type="submit" disabled={editSaving} className="flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-60">{editSaving ? "Saving…" : "Save Changes"}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/*Add Modal*/}
       {isAddOpen && (

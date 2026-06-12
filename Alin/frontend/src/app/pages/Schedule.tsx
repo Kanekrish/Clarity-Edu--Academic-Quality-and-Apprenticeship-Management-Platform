@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router";
 import { FileDown, AlertCircle, Trash2 } from "lucide-react";
 import { api } from "../../services/api";
 
@@ -17,6 +18,16 @@ interface ScheduleRow {
   session_date: string;
   topic: string;
   academic_year: string;
+}
+
+interface AssessmentRow {
+  id: number;
+  module_id: number;
+  title: string;
+  deadline: string | null;
+  release_date: string | null;
+  module_code: string;
+  module_title: string;
 }
 
 const MONTHS_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -51,13 +62,21 @@ export default function Schedule() {
 
   const [selectedModuleId, setSelectedModuleId] = useState("all");
 
+  const [assessments, setAssessments] = useState<AssessmentRow[]>([]);
+  const [newAssessment, setNewAssessment] = useState({ module_id: "", title: "", deadline: "" });
+  const [addingAssessment, setAddingAssessment] = useState(false);
+
   const fetchAllSchedules = (year: string, markAsDb = false) =>
     api.get<ScheduleRow[]>(`/schedules?academicYear=${encodeURIComponent(year)}`)
       .then(rows => { setAllSchedules(rows); if (markAsDb) setIsFromDb(rows.length > 0); })
       .catch(() => {});
 
+  const fetchAssessments = () =>
+    api.get<AssessmentRow[]>('/assessments').then(setAssessments).catch(() => {});
+
   useEffect(() => {
     api.get<Module[]>('/modules').then(setModules).catch(() => {});
+    fetchAssessments();
   }, []);
 
   useEffect(() => {
@@ -155,9 +174,6 @@ export default function Schedule() {
     if (!config.semesterStart || !config.semesterEnd) return [];
     const weeks: Date[] = [];
     const cur = new Date(config.semesterStart);
-    // Snap to nearest Monday
-    const day = cur.getDay();
-    if (day !== 1) cur.setDate(cur.getDate() + ((1 - day + 7) % 7));
     const end = new Date(config.semesterEnd);
     while (cur <= end) {
       weeks.push(new Date(cur));
@@ -207,13 +223,74 @@ export default function Schedule() {
     return Object.entries(map).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
   }, [modules]);
 
-  const startMs = config.semesterStart ? new Date(config.semesterStart).getTime() : 0;
 
-  const cellBg = (d: Date, hasSession: boolean, isAlt: boolean) => {
+  const handleAddAssessment = async () => {
+    if (!newAssessment.module_id || !newAssessment.title || !newAssessment.deadline) return;
+    setAddingAssessment(true);
+    try {
+      const targets = newAssessment.module_id === "all"
+        ? modules.map(m => m.id)
+        : [Number(newAssessment.module_id)];
+      for (const mid of targets) {
+        await api.post('/assessments', {
+          module_id: mid,
+          title: newAssessment.title,
+          deadline: newAssessment.deadline,
+        });
+      }
+      setNewAssessment({ module_id: "", title: "", deadline: "" });
+      await fetchAssessments();
+    } catch (err: any) {
+      setError(err.message || "Failed to add assessment");
+    } finally {
+      setAddingAssessment(false);
+    }
+  };
+
+  const handleDeleteAssessment = async (id: number) => {
+    try {
+      await api.del(`/assessments/${id}`);
+      await fetchAssessments();
+    } catch (err: any) {
+      setError(err.message || "Failed to delete assessment");
+    }
+  };
+
+  const periodAssessments = useMemo(() => {
+    if (!config.semesterStart || !config.semesterEnd) return assessments;
+    const start = new Date(config.semesterStart).getTime();
+    const end = new Date(config.semesterEnd).getTime() + 6 * 24 * 60 * 60 * 1000;
+    return assessments.filter(a => {
+      if (!a.deadline) return false;
+      const t = new Date(a.deadline).getTime();
+      return t >= start && t <= end;
+    });
+  }, [assessments, config.semesterStart, config.semesterEnd]);
+
+  const assessmentDeadlines = useMemo<Record<number, string[]>>(() => {
+    const map: Record<number, string[]> = {};
+    for (const a of assessments) {
+      if (!a.deadline) continue;
+      if (!map[a.module_id]) map[a.module_id] = [];
+      map[a.module_id].push(a.deadline);
+    }
+    return map;
+  }, [assessments]);
+
+  const weekHasAssessment = (weekDate: Date, moduleId: number): boolean => {
+    const deadlines = assessmentDeadlines[moduleId] || [];
+    const wStart = weekDate.toISOString().split('T')[0];
+    const wEnd = new Date(new Date(wStart + 'T00:00:00Z').getTime() + 6 * 24 * 60 * 60 * 1000)
+      .toISOString().split('T')[0];
+    return deadlines.some(d => d >= wStart && d <= wEnd);
+  };
+
+  const cellBg = (d: Date, hasSession: boolean, hasAssessment: boolean, isAlt: boolean) => {
     const t = weekType(d);
     if (t === "christmas") return "bg-green-200";
     if (t === "easter")    return "bg-yellow-200";
     if (t === "reading")   return "bg-purple-100";
+    if (hasAssessment)     return "bg-red-500";
     if (hasSession)        return "bg-orange-400";
     return isAlt ? "bg-gray-50" : "bg-white";
   };
@@ -321,8 +398,86 @@ export default function Schedule() {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm" />
           </div>
         </div>
-      
-      
+
+        {/* Assessment Deadlines */}
+        <div className="mt-6 pt-5 border-t border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3">Assessment Deadlines</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">Module</label>
+              <select
+                value={newAssessment.module_id}
+                onChange={e => setNewAssessment(prev => ({ ...prev, module_id: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+              >
+                <option value="">Select module…</option>
+                <option value="all">All Modules</option>
+                {modules.map(m => <option key={m.id} value={m.id}>{m.code} — {m.title}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">Title</label>
+              <input
+                type="text"
+                value={newAssessment.title}
+                onChange={e => setNewAssessment(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="e.g. Assignment 1"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-2">Deadline Date</label>
+              <input
+                type="date"
+                value={newAssessment.deadline}
+                onChange={e => setNewAssessment(prev => ({ ...prev, deadline: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 text-sm"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={handleAddAssessment}
+                disabled={addingAssessment || !newAssessment.module_id || !newAssessment.title || !newAssessment.deadline}
+                className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-60 text-sm"
+              >
+                {addingAssessment ? "Adding…" : "+ Add"}
+              </button>
+            </div>
+          </div>
+
+          {periodAssessments.length > 0 && (
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-gray-50 text-gray-500 text-left">
+                  <th className="px-3 py-1.5 font-medium border border-gray-200">Module</th>
+                  <th className="px-3 py-1.5 font-medium border border-gray-200">Title</th>
+                  <th className="px-3 py-1.5 font-medium border border-gray-200">Deadline</th>
+                  <th className="px-3 py-1.5 w-8 border border-gray-200"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {periodAssessments.map(a => (
+                  <tr key={a.id} className="hover:bg-gray-50">
+                    <td className="px-3 py-1 font-mono font-bold border border-gray-200">
+                      <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1.5" />{a.module_code}
+                    </td>
+                    <td className="px-3 py-1 border border-gray-200">{a.title}</td>
+                    <td className="px-3 py-1 border border-gray-200">{a.deadline}</td>
+                    <td className="px-3 py-1 text-center border border-gray-200">
+                      <button onClick={() => handleDeleteAssessment(a.id)} className="text-red-400 hover:text-red-600">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {periodAssessments.length === 0 && (
+            <p className="text-xs text-gray-400">No assessment deadlines{config.semesterStart && config.semesterEnd ? " for this period" : ""}. Add one above or set them via the <Link to="/assessments" className="text-teal-600 hover:underline">Assessments page</Link>.</p>
+          )}
+        </div>
+
         {error && (
           <div className="mt-4 flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
@@ -426,7 +581,7 @@ export default function Schedule() {
                     const t = weekType(w);
                     const bg = t === "christmas" ? "bg-green-200" : t === "easter" ? "bg-yellow-200" : t === "reading" ? "bg-purple-100" : "bg-teal-700";
                     const label = breakLabel(w);
-                    const wkNum = label ? null : Math.floor((w.getTime() - startMs) / (7*24*60*60*1000)) + 1;
+                    const wkNum = label ? null : i + 1;
                     return (
                       <th key={i} className={`${bg} border border-teal-600 text-center`} style={{ minWidth: 28, width: 28 }}>
                         {label
@@ -487,13 +642,14 @@ export default function Schedule() {
                           </td>
                           {ganttWeeks.map((w, i) => {
                             const dateStr = w.toISOString().split("T")[0];
-                            const bg = cellBg(w, sessions.has(dateStr), isAlt);
+                            const hasAssessment = weekHasAssessment(w, m.id);
+                            const bg = cellBg(w, sessions.has(dateStr), hasAssessment, isAlt);
                             return (
                               <td
                                 key={i}
                                 className={`${bg} border border-gray-200`}
                                 style={{ minWidth: 28, width: 28, height: 18 }}
-                                title={sessions.has(dateStr) ? `${m.code} — week of ${dateStr}` : ""}
+                                title={hasAssessment ? `${m.code} — assessment deadline` : sessions.has(dateStr) ? `${m.code} — week of ${dateStr}` : ""}
                               />
                             );
                           })}
@@ -511,10 +667,11 @@ export default function Schedule() {
             <p className="text-xs font-bold text-center mb-3">Keys</p>
             <div className="flex flex-wrap gap-4 text-xs">
               {[
-                { label: "Teaching Session",  cls: "bg-orange-400" },
-                { label: "Christmas Break",   cls: "bg-green-200 border border-green-300" },
-                { label: "Easter Break",      cls: "bg-yellow-200 border border-yellow-300" },
-                { label: "Reading Week",      cls: "bg-purple-100 border border-purple-300" },
+                { label: "Teaching Session",    cls: "bg-orange-400" },
+                { label: "Assessment Deadline", cls: "bg-red-500" },
+                { label: "Christmas Break",     cls: "bg-green-200 border border-green-300" },
+                { label: "Easter Break",        cls: "bg-yellow-200 border border-yellow-300" },
+                { label: "Reading Week",        cls: "bg-purple-100 border border-purple-300" },
               ].map(k => (
                 <div key={k.label} className="flex items-center gap-2">
                   <div className={`w-5 h-4 rounded-sm ${k.cls}`} />
